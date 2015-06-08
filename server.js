@@ -27,26 +27,67 @@ app.listen(3000, function(){
 
 app.get('/tintin/:changeid', function(req, res) {
 //    console.log('got a request for change id: ' + req.params.changeid);
-    console.log('redirecting request to: ' + config.tintin + req.params.changeid);
-
-    request({
-	method: 'GET',
-	url: config.tintin + req.params.changeid,
-	qs: {
+    console.log('redirecting request to: ' + config.couch + req.params.changeid);
+    console.log({
 	    key: JSON.stringify(req.query.q),
 	    reduce: false,
 	    include_docs: true
-	}
+    });
+
+    request({
+	method: 'GET',
+	url: config.couch + req.params.changeid,
+//	qs: {
+//	    key: JSON.stringify(req.query.q),
+//	    reduce: false,
+//	    include_docs: true
+//	}
     }, function(err, couchRes, body) {
       
 	// couldn't connect to CouchDB
 	if (err) {
-	    res.json(502, { error: "couldn't connect to tintin", reason: err.code });
+	    res.json(502, { error: "couldn't connect to couchdb", reason: err.code });
 	    return;
 	}
       
+	// not found in database
+	if (couchRes.statusCode == 404) {
+	    console.log('got a 404, redirecting to the real tintin');
+	    // redirect to the real tintin
+	    request({
+		method: 'GET',
+		url: config.tintin + req.params.changeid,
+	    }, function(err, tintinRes, body) {
+		if (err) {
+		    res.json(502, { error: "couldn't connect to tintin", reason: err.code });
+		    return;
+		}
+		if (tintinRes.statusCode !== 200) {
+		    console.log('tintin returned status ' + tintinRes.statusCode);
+		    res.json(tintinRes.statusCode, JSON.parse(body));
+		    return;
+		}
+		console.log('got response from tintin, adding to db');
+		request({
+		    method: 'PUT',
+		    url: config.couch + req.params.changeid,
+		    json: JSON.parse(body)
+		}, function(err, tintinputRes, body) {
+		    if (err) {
+			res.json(502, { error: "couldn't connect to tintin on put", reason: err.code});
+			return;
+		    }
+		});
+		res.json(200, JSON.parse(body));
+		return;
+	    });
+	    return;
+	}
+		   
+
 	// CouchDB couldn't process our request
 	if (couchRes.statusCode !== 200) {
+	    console.log('couch returned status ' + couchRes.statusCode);
 	    res.json(couchRes.statusCode, JSON.parse(body));
 	    return;
 	}
@@ -69,7 +110,7 @@ app.get('/tintin/:changeid', function(req, res) {
 //	    console.log(elem);
 	    change = elem;
 	});
-	res.json(change);
+	res.json(200, change);
     });
 });
 
